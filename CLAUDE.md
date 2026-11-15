@@ -8,6 +8,6 @@ python omalovanky_prevod.py vstup.jpg vystup.pdf
 ```
 
 - Zrnité fotky potřebují `--odsum 12`, jinak se motiv rozpadne na mozaiku mnohoúhelníků.
-- `--sum 15` dá řidší, lépe vybarvitelnou omalovánku než výchozí `--sum 40`.
+- `--min-plocha` je v mm² na papíře (výchozí 7), `--hladkost` vyhlazuje tvary (výchozí 5); větší hodnoty = větší a méně početné plochy.
 - Po převodu výsledek zkontroluj vykreslením PDF (`pdftoppm`).
 - Vstupní obrázky a vygenerovaná PDF se necommitují bez výslovného pokynu.

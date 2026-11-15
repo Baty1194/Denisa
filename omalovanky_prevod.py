@@ -5,12 +5,13 @@ Převod libovolného obrázku na omalovánky podle čísel (A4 PDF).
 Použití:
     pip install numpy scipy opencv-python pillow reportlab
     python omalovanky_prevod.py vstup.jpg vystup.pdf
-    python omalovanky_prevod.py vstup.jpg vystup.pdf --barev 40 --min-plocha 100 --sum 40
+    python omalovanky_prevod.py vstup.jpg vystup.pdf --barev 30 --min-plocha 12 --hladkost 9
 
 Parametry:
-    --barev        počet barev (max 48, výchozí 48)
-    --min-plocha   nejmenší plocha v pixelech; menší = hustší mozaika (výchozí 130)
-    --sum          síla textury; vyšší = více drobných ploch (výchozí 40, 0 = bez textury)
+    --barev        počet barev (max 48, výchozí 36)
+    --min-plocha   nejmenší plocha v mm² na papíře; větší = větší plochy (výchozí 7)
+    --hladkost     vyhlazení tvarů, liché číslo; větší = oblejší a větší plochy (výchozí 5, 0 = vypnuto)
+    --sum          síla textury; vyšší = více drobných ploch (výchozí 0 = bez textury)
     --odsum        odšumění vstupu před převodem; pro zrnité fotky zkus 12 (výchozí 0 = vypnuto)
     --font         cesta k TTF fontu s řeckými písmeny (výchozí DejaVuSans)
 
@@ -32,13 +33,15 @@ SYMS = list('1234567890') + list('abcdefhkmnpqrtuwxyz') + list('ΔΣΦΨΩΛΠΓ
 ap = argparse.ArgumentParser()
 ap.add_argument('vstup')
 ap.add_argument('vystup')
-ap.add_argument('--barev', type=int, default=48)
-ap.add_argument('--min-plocha', type=int, default=130)
-ap.add_argument('--sum', type=float, default=40)
+ap.add_argument('--barev', type=int, default=36)
+ap.add_argument('--min-plocha', type=float, default=7)
+ap.add_argument('--hladkost', type=int, default=5)
+ap.add_argument('--sum', type=float, default=0)
 ap.add_argument('--font', default=None)
 ap.add_argument('--odsum', type=float, default=0)
 a = ap.parse_args()
 K = min(a.barev, len(SYMS))
+MIN_PX = int(a.min_plocha * (300 / 25.4) ** 2)  # mm² -> pixely při 300 dpi
 
 # --- font ---
 cands = [a.font] if a.font else [
@@ -87,7 +90,11 @@ if a.sum > 0:
     noisy = np.clip(noisy, 0, 255).astype(np.uint8)
 else:
     noisy = img
-sm = cv2.bilateralFilter(noisy, 5, 18, 4)
+sm = cv2.bilateralFilter(noisy, 9, 30, 7)
+if a.hladkost > 0:
+    kk = a.hladkost | 1
+    sm = cv2.medianBlur(sm, kk)
+    sm = cv2.medianBlur(sm, kk)
 lab = cv2.cvtColor(sm, cv2.COLOR_RGB2LAB).astype(np.float32)
 
 # --- kvantizace barev ---
@@ -113,13 +120,21 @@ def comps(L):
     return cc, off
 
 
-for _ in range(4):
-    cc, n = comps(L)
-    small = np.bincount(cc.ravel(), minlength=n + 1)[cc] < a.min_plocha
-    if not small.any() or small.all():
-        break
-    idx = ndimage.distance_transform_edt(small, return_distances=False, return_indices=True)
-    L = np.where(small, L[idx[0], idx[1]], L)
+# slučování malých ploch postupně od nejmenších, aby velké plochy vznikaly plynule
+thr = 40
+steps = []
+while thr < MIN_PX:
+    steps.append(thr)
+    thr *= 3
+steps.append(MIN_PX)
+for thr in steps:
+    for _ in range(3):
+        cc, n = comps(L)
+        small = np.bincount(cc.ravel(), minlength=n + 1)[cc] < thr
+        if not small.any() or small.all():
+            break
+        idx = ndimage.distance_transform_edt(small, return_distances=False, return_indices=True)
+        L = np.where(small, L[idx[0], idx[1]], L)
 cc, n = comps(L)
 print('ploch:', n)
 
@@ -154,16 +169,16 @@ for i, sl in enumerate(ndimage.find_objects(cc), start=1):
     placed = 0
     while placed < 6:
         mx = edt.max()
-        if mx < (5.5 if placed == 0 else 38.0):
+        if mx < (5.5 if placed == 0 else 60.0):
             break
         iy, ix = np.unravel_index(np.argmax(edt), edt.shape)
         ry, rx = sl[0].start + iy, sl[1].start + ix
         labels.append((rx, ry, sym_of[int(L[ry, rx])], float(mx)))
         placed += 1
-        if area < 26000:
+        if area < 60000:
             break
         yy, xx = np.ogrid[:edt.shape[0], :edt.shape[1]]
-        edt[(yy - iy) ** 2 + (xx - ix) ** 2 < 150 ** 2] = 0
+        edt[(yy - iy) ** 2 + (xx - ix) ** 2 < 260 ** 2] = 0
 
 # --- PDF ---
 PW, PH = A4
@@ -174,7 +189,7 @@ c = canvas.Canvas(a.vystup, pagesize=A4)
 c.drawImage(ImageReader(Image.open('_art_tmp.png')), ox, oy, AWp, AHp)
 c.setFillColorRGB(0.18, 0.18, 0.18)
 for x, y, sy, r in labels:
-    fs = max(3.0, min(8.0, r / 300 * 25.4 * 5.2))
+    fs = max(4.0, min(9.0, r / 300 * 25.4 * 5.2))
     c.setFont('DV', fs)
     c.drawCentredString(ox + x * kp, oy + (H - y) * kp - fs * 0.35, sy)
 sw = AWp / len(order)
