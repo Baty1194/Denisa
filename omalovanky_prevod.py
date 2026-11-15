@@ -11,6 +11,7 @@ Parametry:
     --barev        počet barev (max 48, výchozí 48)
     --min-plocha   nejmenší plocha v pixelech; menší = hustší mozaika (výchozí 130)
     --sum          síla textury; vyšší = více drobných ploch (výchozí 40, 0 = bez textury)
+    --odsum        odšumění vstupu před převodem; pro zrnité fotky zkus 12 (výchozí 0 = vypnuto)
     --font         cesta k TTF fontu s řeckými písmeny (výchozí DejaVuSans)
 
 Použij jen podklady, ke kterým máš práva (vlastní, licencované, volná licence).
@@ -35,6 +36,7 @@ ap.add_argument('--barev', type=int, default=48)
 ap.add_argument('--min-plocha', type=int, default=130)
 ap.add_argument('--sum', type=float, default=40)
 ap.add_argument('--font', default=None)
+ap.add_argument('--odsum', type=float, default=0)
 a = ap.parse_args()
 K = min(a.barev, len(SYMS))
 
@@ -55,6 +57,8 @@ pdfmetrics.registerFont(TTFont('DVB', bp if os.path.exists(bp) else fp))
 img = cv2.imread(a.vstup)
 if img is None:
     sys.exit(f'Nepodařilo se načíst obrázek: {a.vstup}')
+if a.odsum > 0:
+    img = cv2.fastNlMeansDenoisingColored(img, None, a.odsum, a.odsum, 7, 21)
 img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 h0, w0 = img.shape[:2]
 s = min(2300 / w0, 3150 / h0)
@@ -190,8 +194,9 @@ ref.save('_ref_tmp.jpg', quality=88)
 c.setFont('DVB', 16)
 c.setFillColorRGB(0.1, 0.1, 0.1)
 c.drawCentredString(PW / 2, 810, 'Hotový obrázek a paleta barev')
-rw = 360
-rh = rw * H / W
+rows = (len(order) + 3) // 4
+rh = min(360 * H / W, 800 - 10 - 40 - 18 - rows * 17 - 20)  # aby se tabulka vešla na stránku
+rw = rh * W / H
 c.drawImage(ImageReader('_ref_tmp.jpg'), (PW - rw) / 2, 800 - rh - 10, rw, rh)
 ty = 800 - rh - 40
 c.setFont('DVB', 9)
